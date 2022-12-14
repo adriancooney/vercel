@@ -567,6 +567,9 @@ const main = async () => {
       case 'whoami':
         func = require('./commands/whoami').default;
         break;
+      case 'webhooks':
+        func = require('./commands/webhooks').default;
+        break;
       default:
         func = null;
         break;
