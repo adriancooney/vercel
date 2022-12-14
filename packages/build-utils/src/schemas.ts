@@ -31,6 +31,13 @@ export const functionsSchema = {
           type: 'string',
           maxLength: 256,
         },
+        events: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'string',
+          },
+        },
       },
     },
   },

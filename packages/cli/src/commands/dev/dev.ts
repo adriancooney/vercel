@@ -11,10 +11,17 @@ import { getCommandName } from '../../util/pkg-name';
 import param from '../../util/output/param';
 import { OUTPUT_DIR } from '../../util/build/write-build-result';
 import { pullEnvRecords } from '../../util/env/get-env-records';
+import { WebhookServer } from '../../util/webhooks';
+import getVercelConfigPath from '../../util/config/local-path';
+import { VercelConfig } from '../../util/dev/types';
+import { CantParseJSONFile } from '../../util/errors-ts';
+import { glob } from '@vercel/build-utils';
+import readJsonFile from '../../util/read-json-file';
 
 type Options = {
   '--listen': string;
   '--yes': boolean;
+  '--webhooks': boolean;
 };
 
 export default async function dev(
@@ -93,4 +100,48 @@ export default async function dev(
   }
 
   await devServer.start(...listen);
+
+  if (opts['--webhooks']) {
+    const vercelConfig = await readJsonFile<VercelConfig>(
+      getVercelConfigPath(cwd)
+    );
+
+    if (!vercelConfig || vercelConfig instanceof CantParseJSONFile) {
+      return;
+    }
+
+    const forwardingRules = (
+      await Promise.all(
+        Object.entries(vercelConfig.functions || {}).map(
+          async ([path, def]) => {
+            if (def.events?.length) {
+              // TODO: We need a way to work from function -> route
+              const routes = await glob(path, cwd);
+
+              return Object.keys(routes).map(route => ({
+                url: `${devServer.address}${route
+                  .replace('pages/', '')
+                  .replace(/\.[^.]+$/, '')}`,
+                events: def.events,
+              }));
+            } else {
+              return [];
+            }
+          }
+        )
+      )
+    ).flat();
+
+    const webhookServer = new WebhookServer(client, {
+      logWebhookPayloads: false,
+      forwardingRules,
+    });
+
+    await webhookServer.start();
+
+    process.once('SIGTERM', () => webhookServer.stop());
+    process.once('SIGINT', () => webhookServer.stop());
+    process.once('SIGUSR1', () => webhookServer.stop());
+    process.once('SIGUSR2', () => webhookServer.stop());
+  }
 }
